@@ -1,0 +1,7 @@
+build/
+dist/
+nbproject/
+build.xml
+data.json
+events.xml
+manifest.mf
