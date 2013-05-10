@@ -21,20 +21,28 @@ import org.dom4j.Attribute;
 import org.dom4j.Document;
 import org.dom4j.DocumentException;
 import org.dom4j.Element;
-import org.dom4j.Node;
 import org.dom4j.io.SAXReader;
 
-/**
- *
- * @author Denny
+/*
+ *   XMLParser
+ * -------------
+ * Description:
+ *      XMLParser parses the "events.xml" file in order to extract the required data to
+ *      generate the "saved-data.json" file, which is the file that Popcorn Maker
+ *      reads at the begining to build the timeline when the user wants to start a new project.
+ *      If you modify this file, then you can add events by default, to start a new project.
+ * 
+ * Required libraries:
+ *      -> dom4j-1.6.1.jar : http://sourceforge.net/projects/dom4j/
+ *      -> gson-2.2.3.jar  : https://code.google.com/p/google-gson/downloads/detail?name=google-gson-2.2.3-release.zip
  */
 public class XMLParser {
     
     public static FileWriter fw = null;
     public static PrintWriter pw = null;
     public static ArrayList<String> totalEvents = new ArrayList<>(), totalModules = new ArrayList<>();
-    public static double start = 0, end = 0, saveLast = 0, last = 0, start_audio = 0, end_audio = 0; 
-    public static int trackEvent = 0, cont = 0;
+    public static double start_slide = 0, end_slide = 0, saveLast = 0, end_of_conference = 0, start_audio = 0, end_audio = 0; 
+    public static int trackEvent = 0, number_of_slides = 0;
     public static String fst_timestamp = "",                          
                          currentSlide = "",
                          lastSlide = "",
@@ -46,12 +54,14 @@ public class XMLParser {
                           imageLayerCreated = false,
                           waiting_next = false,
                           writeComa = false,
-                          printed = false,
-                          sharePresentationEvent = false;
+                          printed_fst_image_event = false;    
     
-    
-    public static void main(String[] args) throws IOException {
+    public static void main(String[] args) throws IOException, DocumentException {
         try{
+            
+            /*
+             * Reads the "events.xml" file.
+             */
             InputStream is = new FileInputStream("events.xml");
             Document doc = new SAXReader().read(is);
             is.close();
@@ -68,21 +78,12 @@ public class XMLParser {
                 Attribute timestamp = currentElement.attribute("timestamp");
                 if(eventName.getStringValue().equals("EndAndKickAllEvent")){
                     // Finding the end of the conference.
-                    last = getSeconds(timestamp.getValue(),fst_timestamp);                    
+                    end_of_conference = getSeconds(timestamp.getValue(),fst_timestamp);                    
                 }
                 if(eventName.getStringValue().equals("GotoSlideEvent")){
-                    cont++; // With cont I'll know if there is one, or more slides.
-                    System.out.println("Mostrando diapositiva: " + currentElement.elements().get(0).getStringValue() + " en t = " + getSeconds(timestamp.getValue(),fst_timestamp) + " segundos.");
-                }                
-            }
-                        
-            updateJSON(true,findFile("Z:/butter/public/templates/basic/" + meeting_id + "/audio",".wav"),last);
-                        
-            for(int i=0;i<events.size();i++){
-                //This for is just for the GotoSlideEvent, so a layer will be created for this.
-                Element currentElement = events.get(i);
-                Attribute eventName = currentElement.attribute("eventname");
-                Attribute timestamp = currentElement.attribute("timestamp");
+                    number_of_slides++;
+                    System.out.println("Showing slide: " + currentElement.elementText("slide") + " at t = " + getSeconds(timestamp.getValue(),fst_timestamp) + " segundos.");
+                }
                 
                 if(eventName.getStringValue().equals("StartRecordingEvent")){
                     start_audio = getSeconds(timestamp.getValue(),fst_timestamp);                    
@@ -91,11 +92,20 @@ public class XMLParser {
                 if(eventName.getStringValue().equals("ParticipantLeftEvent")){
                     end_audio = getSeconds(timestamp.getValue(),fst_timestamp);
                 }
+            }
+                        
+            updateJSON(true,end_of_conference);
+                        
+            for(int i=0;i<events.size();i++){
+                //This for is just for the GotoSlideEvent, so a layer will be created for this.
+                Element currentElement = events.get(i);
+                Attribute eventName = currentElement.attribute("eventname");
+                Attribute timestamp = currentElement.attribute("timestamp");
                 
-                if(eventName.getStringValue().equals("SharePresentationEvent")){                    
+                if(eventName.getStringValue().equals("SharePresentationEvent")){
                     Element presentationName = currentElement.element("presentationName");
                     directory = meeting_id + "/presentation/" +presentationName.getText()+ "/thumbnails";
-                }                
+                }
                 
                 if(eventName.getStringValue().equals("GotoSlideEvent")){
                     if(!imageLayerCreated){
@@ -106,12 +116,12 @@ public class XMLParser {
                                 "\"trackEvents\": [";
                         imageLayerCreated = true;
                     }
-                    if(cont == 1){
+                    if(number_of_slides == 1){
                         saveLast = getSeconds(timestamp.getValue(),fst_timestamp);
                         break;
                     }
                     if(waiting_next){
-                        end = getSeconds(timestamp.getValue(),fst_timestamp);
+                        end_slide = getSeconds(timestamp.getValue(),fst_timestamp);
                         if(writeComa){
                             json += ",{";
                         }
@@ -122,13 +132,13 @@ public class XMLParser {
                                 "\"type\": \"image\"," +
                                 "\"popcornOptions\": {";
                         trackEvent++;
-                        if(!printed){
-                            json += "\"start\" : "+ start +",";
-                            printed = true;
+                        if(!printed_fst_image_event){
+                            json += "\"start\" : "+ start_slide +",";
+                            printed_fst_image_event = true;
                         }else{
                             json += "\"start\" : "+ saveLast +",";
                         }
-                        json += "\"end\" : "+ end +"," +
+                        json += "\"end\" : "+ end_slide +"," +
                                 "\"target\": \"video-container\"," +
                                 "\"src\": \""+lastDirectory+"/thumb-"+(Integer.parseInt(currentSlide)+1)+".png\"," +
                                 "\"width\": 80," +
@@ -138,14 +148,14 @@ public class XMLParser {
                                 "\"transition\": \"popcorn-fade\"" +
                                 "}," +
                                 "\"track\": \"1\"," +
-                                "\"name\": \"TrackEvent6\"" +
+                                "\"name\": \"TrackEvent" +trackEvent+ "\"" +
                                 "}"; //End event
                         writeComa = true;
                         saveLast = getSeconds(timestamp.getValue(),fst_timestamp);
-                        currentSlide = currentElement.elements().get(0).getStringValue();                        
+                        currentSlide = currentElement.elementText("slide");
                     }else{
-                        start = getSeconds(timestamp.getValue(),fst_timestamp);
-                        currentSlide = currentElement.elements().get(0).getStringValue();
+                        start_slide = getSeconds(timestamp.getValue(),fst_timestamp);
+                        currentSlide = currentElement.elementText("slide");
                         lastSlide = currentSlide;
                         waiting_next = true;
                     }
@@ -153,17 +163,17 @@ public class XMLParser {
                 }
             }
             //Writes the last slide:
-            if(cont == 1){
+            if(number_of_slides == 1){
                 json += "{";
             }
             else{
                 json += ",{";
-            }
+            }            
             json += "\"id\": \"TrackEvent" +trackEvent+ "\"," +
                     "\"type\": \"image\"," +
                     "\"popcornOptions\": {" +
                     "\"start\": " +saveLast+ "," +
-                    "\"end\": " +last+ "," +
+                    "\"end\": " +end_of_conference+ "," +
                     "\"target\": \"video-container\"," +                    
                     "\"src\": \""+lastDirectory+"/thumb-" +(Integer.parseInt(currentSlide)+1)+ ".png\"," +
                     "\"width\": 80," +
@@ -173,12 +183,13 @@ public class XMLParser {
                     "\"transition\": \"popcorn-fade\"" +
                     "}," +
                     "\"track\": \"1\"," +
-                    "\"name\": \"TrackEvent6\"" +
+                    "\"name\": \"TrackEvent" +(trackEvent+1)+ "\"" +
                     "}]" + //End event
                     "}";
             trackEvent++;
-            writeComa = false;                                                
+            String fileName = findFile("Z:/butter/public/templates/basic/" + meeting_id + "/audio",".wav");
             
+            //Writes the layer for the audio.
             json += ",{" +
                     "\"name\": \"Layer\"," +
                     "\"id\": \"2\"," +
@@ -189,16 +200,24 @@ public class XMLParser {
                     "\"popcornOptions\": {" +
                     "\"start\": " +start_audio+ "," +
                     "\"end\": " +end_audio+ "," +
-                    "\"source\": \""+meeting_id+"/audio/" + findFile("Z:/butter/public/templates/basic/" + meeting_id + "/audio",".wav") +
+                    "\"source\": \""+meeting_id+"/audio/" + fileName + "\"," +
+                    "\"title\": \"" + fileName +"\"," +
+                    "\"fallback\": []," +
+                    "\"duration\": " +end_of_conference+ "," +
                     "\"target\": \"video-container\"," +
-                    "\"title\": \"" + findFile("Z:/butter/public/templates/basic/" + meeting_id + "/audio",".wav") +"\"" +
                     "\"width\": 100," +
-                    "\"height\": 100," +                    
+                    "\"height\": 100," +                
+                    "\"top\": 0," +
+                    "\"left\": 0," +
+                    "\"from\": 0," +
+                    "\"volume\": 100," +
                     "\"hidden\": true," +
+                    "\"mute\": false," +
+                    "\"zindex\": 999," +
                     "\"denied\": false" +
                     "}," +
                     "\"track\": \"1\"," +
-                    "\"name\": \"TrackEvent6\"" +
+                    "\"name\": \"TrackEvent" +(trackEvent+1)+ "\"" +
                     "}]" + //End event
                     "}";                                    
             
@@ -218,12 +237,11 @@ public class XMLParser {
     public static String findFile(String folder, String ext){
         GenericExtFilter filter = new GenericExtFilter(ext);
         File dir = new File(folder);
-        
-        String[] list = dir.list(filter);                
+        String[] list = dir.list(filter);
         return list[0];
     }
     
-    public static class GenericExtFilter implements FilenameFilter {
+    public static class GenericExtFilter implements FilenameFilter{
         private String ext;
         public GenericExtFilter(String ext){
             this.ext = ext;
@@ -251,11 +269,11 @@ public class XMLParser {
                   "}]," +
                   "\"media\": [{" +
                     "\"id\": \"Media0\"," +
-                    "\"name\": \"Media0\"," +
-                    "\"url\": [\"" +meeting_id+ "/audio/" +params[0]+ "\"]," +
+                    "\"name\": \"Media0\"," +                    
                     "\"target\": \"video\"," +
-                    "\"duration\": " +params[1]+ "," +
-                    "\"controls\": false," +
+                    "\"duration\": " +params[0]+ "," +
+                    "\"popcornOptions\": {\"frameAnimation\": true}," +
+                    "\"controls\": true," +
                     "\"tracks\": [";
         }else{
             json += "]" +
@@ -269,7 +287,7 @@ public class XMLParser {
     /*
      * Method: prettyJSON
      * Usage: prettyJSON("Your ugly json String here");
-     * ------------------------------------------
+     * ------------------------------------------------
      * Description: returns a pretty json String.
      */
     public static String prettyJSON(String json){
